@@ -1,8 +1,8 @@
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import mm
-from PyPDF2 import PdfReader, PdfWriter, PdfMerger
-from PyPDF2.generic import NameObject, create_string_object
-from PyPDF2.pdf import PageObject
+from PyPDF2 import PdfReader, PdfWriter
+from PyPDF2.generic import RectangleObject
+from PyPDF2 import Transformation
 
 class PDFCreator:
     def __init__(self):
@@ -12,66 +12,69 @@ class PDFCreator:
         self.final_pdf_path = "output.pdf"
 
     def create_blank_pdf(self, filename, num_pages):
+        """Create a blank PDF with given number of pages."""
         c = canvas.Canvas(filename, pagesize=(self.page_width, self.page_height))
         for _ in range(num_pages):
             c.showPage()
         c.save()
-        print(f"Blank PDF with {num_pages} blank pages created: {filename}")
+        print(f"Blank PDF with {num_pages} pages created: {filename}")
 
     def text2pdf(self, txt_filepath):
         try:
-            # Step 1: Create blank 4-page PDF
+            # Step 1: Create blank PDF
             self.create_blank_pdf(self.blank_pdf_path, num_pages=4)
 
-            # Step 2: Open blank PDF
+            # Step 2: Read the blank PDF
             reader = PdfReader(self.blank_pdf_path)
             writer = PdfWriter()
 
-            # Step 3: Read text file
+            # Step 3: Read the text file
             with open(txt_filepath, 'r', encoding='utf-8') as txt_file:
-                text_lines = txt_file.readlines()
+                lines = txt_file.readlines()
 
-            lines_per_page = 40  # You can adjust this based on line spacing
-            current_line = 0
-            total_lines = len(text_lines)
+            # Step 4: Define starting coordinates
+            margin_x = 40  # from left
+            start_y = self.page_height - 50  # from top
+            line_spacing = 20  # space between lines
 
-            for page_num, blank_page in enumerate(reader.pages):
-                # Create a new PageObject to add text
-                new_page = PageObject.create_blank_page(
-                    width=self.page_width, height=self.page_height
+            page_index = 0
+            current_y = start_y
+
+            # Step 5: Start writing line-by-line
+            page = reader.pages[page_index]
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue  # skip empty lines
+
+                # If not enough space, go to next page
+                if current_y <= 50:
+                    writer.add_page(page)
+                    page_index += 1
+                    if page_index >= len(reader.pages):
+                        print("Ran out of blank pages!")
+                        break
+                    page = reader.pages[page_index]
+                    current_y = start_y
+
+                # Add text to page
+                page.add_text(
+                    text=line,
+                    location=(margin_x, current_y),
+                    font="Helvetica",
+                    size=12
                 )
 
-                # Start writing text manually
-                from PyPDF2._writer import _create_stream
+                current_y -= line_spacing
 
-                contents = ""
-                x_start = 50  # Start 50 units from left
-                y_start = self.page_height - 70  # Start near top
-                line_spacing = 20  # Line spacing in points
+            # Add the last modified page
+            writer.add_page(page)
 
-                y = y_start
-                while current_line < total_lines and y > 50:
-                    line = text_lines[current_line].strip().replace("(", "\\(").replace(")", "\\)")
-                    # PDF text command
-                    contents += f"BT /F1 12 Tf {x_start} {y} Td ({line}) Tj ET\n"
-                    y -= line_spacing
-                    current_line += 1
-
-                # Add the text content stream
-                stream = _create_stream(contents.encode('utf-8'))
-                new_page[NameObject("/Contents")] = stream
-
-                # Copy existing resources if needed
-                new_page.merge_page(blank_page)
-
-                # Add text page
-                writer.add_page(new_page)
-
-            # Step 4: Save final PDF
+            # Step 6: Save final PDF
             with open(self.final_pdf_path, "wb") as f_out:
                 writer.write(f_out)
 
-            print("Successfully created PDF with text using only PyPDF2!")
+            print("Successfully created PDF with text!")
 
         except Exception as e:
             print(f"Error: {e}")
@@ -80,4 +83,5 @@ if __name__ == "__main__":
     pdf_creator = PDFCreator()
     txt_filepath = "/home/aayush.ambhore@gripunedomain.com/Desktop/Files/Tasks/Appendix.txt"
     pdf_creator.text2pdf(txt_filepath)
+
 
