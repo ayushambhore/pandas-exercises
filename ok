@@ -1,14 +1,13 @@
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import mm
-from PyPDF2 import PdfReader, PdfWriter
-from PyPDF2.generic import RectangleObject
-from PyPDF2 import Transformation
+from pypdf import PdfReader, PdfWriter
 
 class PDFCreator:
     def __init__(self):
         self.page_width = 437 * mm
         self.page_height = 330 * mm
         self.blank_pdf_path = "blank.pdf"
+        self.text_pdf_path = "text.pdf"
         self.final_pdf_path = "output.pdf"
 
     def create_blank_pdf(self, filename, num_pages):
@@ -19,69 +18,63 @@ class PDFCreator:
         c.save()
         print(f"Blank PDF with {num_pages} pages created: {filename}")
 
+    def create_text_pdf(self, txt_filepath, packet_path):
+        """Create a PDF that contains the text from the file."""
+        c = canvas.Canvas(packet_path, pagesize=(self.page_width, self.page_height))
+
+        with open(txt_filepath, 'r', encoding='utf-8') as txt_file:
+            text_content = txt_file.readlines()
+
+        textobject = c.beginText()
+        textobject.setTextOrigin(40, self.page_height - 50)  # Start top with some margin
+        textobject.setFont("Helvetica", 12)
+
+        line_spacing = 20  # spacing between lines
+        lines_per_page = int((self.page_height - 100) / line_spacing)  # auto calculate
+        line_count = 0
+
+        for line in text_content:
+            line = line.strip()
+            if not line:
+                continue
+
+            if line_count >= lines_per_page:
+                c.drawText(textobject)
+                c.showPage()
+                textobject = c.beginText()
+                textobject.setTextOrigin(40, self.page_height - 50)
+                textobject.setFont("Helvetica", 12)
+                line_count = 0
+
+            textobject.textLine(line)
+            line_count += 1
+
+        c.drawText(textobject)
+        c.save()
+        print(f"Text PDF created: {packet_path}")
+
+    def merge_pdfs(self):
+        """Merge the blank pages and text pages."""
+        blank_reader = PdfReader(self.blank_pdf_path)
+        text_reader = PdfReader(self.text_pdf_path)
+        writer = PdfWriter()
+
+        for blank_page, text_page in zip(blank_reader.pages, text_reader.pages):
+            blank_page.merge_page(text_page)  # merge text onto blank page
+            writer.add_page(blank_page)
+
+        with open(self.final_pdf_path, "wb") as f_out:
+            writer.write(f_out)
+        print(f"Final PDF saved: {self.final_pdf_path}")
+
     def text2pdf(self, txt_filepath):
-        try:
-            # Step 1: Create blank PDF
-            self.create_blank_pdf(self.blank_pdf_path, num_pages=4)
-
-            # Step 2: Read the blank PDF
-            reader = PdfReader(self.blank_pdf_path)
-            writer = PdfWriter()
-
-            # Step 3: Read the text file
-            with open(txt_filepath, 'r', encoding='utf-8') as txt_file:
-                lines = txt_file.readlines()
-
-            # Step 4: Define starting coordinates
-            margin_x = 40  # from left
-            start_y = self.page_height - 50  # from top
-            line_spacing = 20  # space between lines
-
-            page_index = 0
-            current_y = start_y
-
-            # Step 5: Start writing line-by-line
-            page = reader.pages[page_index]
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue  # skip empty lines
-
-                # If not enough space, go to next page
-                if current_y <= 50:
-                    writer.add_page(page)
-                    page_index += 1
-                    if page_index >= len(reader.pages):
-                        print("Ran out of blank pages!")
-                        break
-                    page = reader.pages[page_index]
-                    current_y = start_y
-
-                # Add text to page
-                page.add_text(
-                    text=line,
-                    location=(margin_x, current_y),
-                    font="Helvetica",
-                    size=12
-                )
-
-                current_y -= line_spacing
-
-            # Add the last modified page
-            writer.add_page(page)
-
-            # Step 6: Save final PDF
-            with open(self.final_pdf_path, "wb") as f_out:
-                writer.write(f_out)
-
-            print("Successfully created PDF with text!")
-
-        except Exception as e:
-            print(f"Error: {e}")
+        """Full pipeline: create blank, text, merge into final PDF."""
+        self.create_blank_pdf(self.blank_pdf_path, num_pages=4)
+        self.create_text_pdf(txt_filepath, self.text_pdf_path)
+        self.merge_pdfs()
+        print("Successfully converted text into PDF with pypdf!")
 
 if __name__ == "__main__":
     pdf_creator = PDFCreator()
     txt_filepath = "/home/aayush.ambhore@gripunedomain.com/Desktop/Files/Tasks/Appendix.txt"
     pdf_creator.text2pdf(txt_filepath)
-
-
