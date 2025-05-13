@@ -1,41 +1,36 @@
 import pandas as pd
-import json
 import re
+import json
 
-# Function to clean and parse malformed JSON strings
-def clean_logprobs(raw_str):
-    try:
-        # Try loading directly first
-        return json.loads(raw_str)
-    except (TypeError, json.JSONDecodeError):
+def fix_logprobs_string(raw_str):
+    if pd.isnull(raw_str):
+        return None
+    
+    # Convert to string (if not already)
+    raw_str = str(raw_str)
+
+    # Replace weird quotes and formatting
+    raw_str = raw_str.replace("'", '"')  # Replace single with double quotes
+    raw_str = raw_str.replace("“", '"').replace("”", '"')  # Fix fancy quotes
+    raw_str = re.sub(r'[\n\r\t]', ' ', raw_str)  # Remove newlines and tabs
+
+    # Replace semi-colons, missing commas, etc.
+    raw_str = raw_str.replace('}. {', '}, {')
+    raw_str = raw_str.replace('}{', '},{')
+
+    # Fix keys if missing quotes
+    raw_str = re.sub(r'(\w+)\s*:', r'"\1":', raw_str)
+
+    # Extract all dicts from the messy string using regex
+    matches = re.findall(r'\{"token":\s*".*?",\s*"Logprob":\s*[-]?[0-9.]+\}', raw_str)
+
+    # Now safely load each one
+    dicts = []
+    for match in matches:
         try:
-            # Basic cleaning: replace single quotes with double quotes
-            raw_str = str(raw_str).replace("'", '"')
+            d = json.loads(match)
+            dicts.append(d)
+        except json.JSONDecodeError:
+            continue
 
-            # Fix common issues
-            raw_str = raw_str.strip().strip("*").strip()
-            
-            # Fix missing commas between items if needed (optional, depends on structure)
-            raw_str = re.sub(r'}\s*{', '},{', raw_str)
-
-            # Enclose in square brackets if it's a series of dicts not in list format
-            if not raw_str.startswith("["):
-                raw_str = "[" + raw_str + "]"
-
-            return json.loads(raw_str)
-        except Exception as e:
-            print(f"Failed to parse: {raw_str}\nError: {e}")
-            return None  # or return raw_str if you want to keep unparsed
-
-# Load the CSV file
-df = pd.read_csv("/home/aayush.ambhore@gripunedomain.com/Desktop/Files/task 13 may/RU_GACxUS")
-
-# Apply cleaning function to 'LogProbs' column
-df['LogProbs'] = df['LogProbs'].apply(clean_logprobs)
-
-# Optional: do the same for 'Sentiment Scores' if needed
-# df['Sentiment Scores'] = df['Sentiment Scores'].apply(clean_logprobs)
-
-# Print the cleaned structure
-print(df.info())
-print(df['LogProbs'].head())
+    return dicts if dicts else None
