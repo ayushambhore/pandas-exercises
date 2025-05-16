@@ -1,1 +1,68 @@
-.
+# Required Libraries
+import numpy as np
+import pandas as pd
+from sklearn.datasets import make_blobs
+from sklearn.metrics import silhouette_score, silhouette_samples, pairwise_distances
+from sklearn_extra.cluster import KMedoids
+from scipy.spatial.distance import cdist
+
+# Sample Data (replace this with your dataset)
+X, _ = make_blobs(n_samples=500, centers=4, random_state=42)
+
+# Define range of clusters to evaluate
+k_range = range(2, 6)
+
+# Container for results
+results = []
+
+for k in k_range:
+    # Fit KMedoids
+    kmedoids = KMedoids(n_clusters=k, metric='euclidean', random_state=42).fit(X)
+
+    labels = kmedoids.labels_
+    medoid_indices = kmedoids.medoid_indices_
+    medoids = kmedoids.cluster_centers_
+    
+    # Silhouette scores
+    silhouette_avg = silhouette_score(X, labels)
+    silhouette_vals = silhouette_samples(X, labels)
+
+    # Intra-cluster distance (mean distance to medoid)
+    intra_dists = []
+    for i in range(k):
+        cluster_points = X[labels == i]
+        medoid = medoids[i].reshape(1, -1)
+        dists = cdist(cluster_points, medoid, metric='euclidean')
+        intra_dists.append(np.mean(dists))
+
+    # Inter-cluster distance (pairwise distance between medoids)
+    inter_dists = cdist(medoids, medoids)
+    upper_tri = inter_dists[np.triu_indices_from(inter_dists, k=1)]
+    avg_inter_cluster_dist = np.mean(upper_tri)
+
+    # Cluster sizes
+    cluster_sizes = [np.sum(labels == i) for i in range(k)]
+
+    # Clustering cost (inertia in KMedoids = sum of distances to medoids)
+    total_cost = kmedoids.inertia_
+
+    # Create summary for each cluster
+    for i in range(k):
+        results.append({
+            'k': k,
+            'Cluster ID': i,
+            'Medoid Index': medoid_indices[i],
+            'Cluster Size': cluster_sizes[i],
+            'Silhouette Score (Cluster)': np.mean(silhouette_vals[labels == i]),
+            'Intra-Cluster Distance': intra_dists[i],
+            'Inter-Cluster Distance (avg)': avg_inter_cluster_dist,
+            'Clustering Cost': total_cost,
+            'Silhouette Score (Overall)': silhouette_avg
+        })
+
+# Convert to DataFrame
+summary_df = pd.DataFrame(results)
+
+# Display full results
+pd.set_option('display.max_columns', None)
+print(summary_df)
