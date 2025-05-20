@@ -1,0 +1,30 @@
+import numpy as np
+import pandas as pd
+from scipy.cluster.hierarchy import linkage, dendrogram
+from scipy.spatial.distance import squareform
+import matplotlib.pyplot as plt
+
+# Step 1: Extract the medoid-to-medoid distance matrix
+medoid_indices = model.medoid_indices_  # From KMedoids
+medoid_distances = distance_matrix[np.ix_(medoid_indices, medoid_indices)]
+
+# Step 2: Convert to condensed distance matrix for linkage
+condensed_distances = squareform(medoid_distances)
+
+# Step 3: Hierarchical clustering on medoids
+linked = linkage(condensed_distances, method='average')  # You can also use 'ward' or 'complete'
+
+# Step 4: Plot as radial (circular) dendrogram
+plt.figure(figsize=(10, 10))
+dendrogram(linked,
+           labels=[f'Cluster {i}' for i in range(len(medoid_indices))],
+           orientation='right',
+           leaf_rotation=90,
+           leaf_font_size=10,
+           distance_sort='descending',
+           show_leaf_counts=True)
+
+plt.title('Radial Dendrogram of K-Medoids Clusters')
+plt.gca().set_aspect('equal', adjustable='datalim')
+plt.tight_layout()
+plt.show()
