@@ -1,70 +1,53 @@
-import matplotlib.pyplot as plt
-from scipy.cluster.hierarchy import linkage, to_tree
 import numpy as np
+import matplotlib.pyplot as plt
+from scipy.cluster.hierarchy import linkage, dendrogram
+
+# --- Step 1: Sample data ---
 from sklearn.datasets import make_blobs
+X, _ = make_blobs(n_samples=20, centers=3, random_state=42)
 
-# ---- Step 1: Prepare sample data and build tree ----
-X, _ = make_blobs(n_samples=10, centers=3, random_state=42)
+# --- Step 2: Hierarchical clustering ---
 Z = linkage(X, method='ward')
-root_node, nodes = to_tree(Z, rd=True)
 
-# ---- Step 2: Assign polar coordinates (angle and radius) ----
-def assign_radial_positions(node, depth=0, leaf_angle=[0], angle_dict=None, max_depth=None):
-    if angle_dict is None:
-        angle_dict = {}
+# --- Step 3: Create dendrogram to extract coordinates ---
+ddata = dendrogram(Z, no_plot=True)
 
-    if max_depth is None:
-        def get_depth(n):
-            if n.is_leaf():
-                return 0
-            return 1 + max(get_depth(n.left), get_depth(n.right))
-        max_depth = get_depth(node)
+# --- Step 4: Convert to polar coordinates manually ---
+icoord = np.array(ddata['icoord'])
+dcoord = np.array(ddata['dcoord'])
+labels = ddata['ivl']
 
-    if node.is_leaf():
-        angle = leaf_angle[0]
-        leaf_angle[0] += 2 * np.pi / node.count  # equally spaced
-        angle_dict[node.id] = (angle, max_depth)
-    else:
-        assign_radial_positions(node.left, depth + 1, leaf_angle, angle_dict, max_depth)
-        assign_radial_positions(node.right, depth + 1, leaf_angle, angle_dict, max_depth)
+# Normalize angles and distances
+max_radius = np.max(dcoord)
+angles = np.linspace(0, 2 * np.pi, icoord.shape[0] * 4)
+angle_map = {}
 
-        left_angle, _ = angle_dict[node.left.id]
-        right_angle, _ = angle_dict[node.right.id]
-        mid_angle = (left_angle + right_angle) / 2
-        angle_dict[node.id] = (mid_angle, max_depth - depth)
+for i, label in enumerate(ddata['leaves']):
+    angle_map[label] = 2 * np.pi * i / len(ddata['leaves'])
 
-    return angle_dict
-
-# ---- Step 3: Plotting function ----
-def plot_radial_tree(ax, node, pos_dict):
-    if node.left:
-        a0, r0 = pos_dict[node.id]
-        a1, r1 = pos_dict[node.left.id]
-        ax.plot([a0, a1], [r0, r1], color='k')
-        plot_radial_tree(ax, node.left, pos_dict)
-    if node.right:
-        a0, r0 = pos_dict[node.id]
-        a1, r1 = pos_dict[node.right.id]
-        ax.plot([a0, a1], [r0, r1], color='k')
-        plot_radial_tree(ax, node.right, pos_dict)
-
-# ---- Step 4: Assign positions and plot tree ----
-positions = assign_radial_positions(root_node)
-
-fig = plt.figure(figsize=(8, 8))
-ax = plt.subplot(111, polar=True)
+# Prepare polar plot
+fig, ax = plt.subplots(figsize=(10, 10), subplot_kw={'projection': 'polar'})
+ax.set_xticks([])
+ax.set_yticks([])
 ax.set_theta_direction(-1)
 ax.set_theta_offset(np.pi / 2)
-ax.set_rticks([])
-ax.set_xticks([])
 
-plot_radial_tree(ax, root_node, positions)
+# --- Step 5: Draw lines in polar coordinates ---
+for xs, ys in zip(icoord, dcoord):
+    # Convert x (horizontal coord) to angle
+    angles = [2 * np.pi * (x - min(icoord.flatten())) / (max(icoord.flatten()) - min(icoord.flatten())) for x in xs]
+    radii = [max_radius - y for y in ys]  # flip Y to make root at center
+    ax.plot(angles, radii, color='black')
 
-# ---- Step 5: Plot nodes and labels ----
-for node_id, (angle, radius) in positions.items():
-    ax.plot(angle, radius, 'o', color='blue')
-    ax.text(angle, radius, str(node_id), fontsize=8,
+# --- Step 6: Label leaves (optional) ---
+for i, label in enumerate(ddata['leaves']):
+    angle = angle_map[label]
+    radius = 0  # leaves at outer edge
+    ax.text(angle, max_radius + 1.5, str(label),
+            rotation=np.degrees(angle),
+            rotation_mode='anchor',
             ha='center', va='center')
 
-plt.title("Radial Dendrogram (Matplotlib + to_tree)", y=1.08)
+plt.title("True Radial Dendrogram (Matplotlib + Scipy)", va='bottom')
+plt.tight_layout()
 plt.show()
