@@ -1,30 +1,70 @@
-import numpy as np
-import pandas as pd
-from scipy.cluster.hierarchy import linkage, dendrogram
-from scipy.spatial.distance import squareform
 import matplotlib.pyplot as plt
+from scipy.cluster.hierarchy import linkage, to_tree
+import numpy as np
+from sklearn.datasets import make_blobs
 
-# Step 1: Extract the medoid-to-medoid distance matrix
-medoid_indices = model.medoid_indices_  # From KMedoids
-medoid_distances = distance_matrix[np.ix_(medoid_indices, medoid_indices)]
+# ---- Step 1: Prepare sample data and build tree ----
+X, _ = make_blobs(n_samples=10, centers=3, random_state=42)
+Z = linkage(X, method='ward')
+root_node, nodes = to_tree(Z, rd=True)
 
-# Step 2: Convert to condensed distance matrix for linkage
-condensed_distances = squareform(medoid_distances)
+# ---- Step 2: Assign polar coordinates (angle and radius) ----
+def assign_radial_positions(node, depth=0, leaf_angle=[0], angle_dict=None, max_depth=None):
+    if angle_dict is None:
+        angle_dict = {}
 
-# Step 3: Hierarchical clustering on medoids
-linked = linkage(condensed_distances, method='average')  # You can also use 'ward' or 'complete'
+    if max_depth is None:
+        def get_depth(n):
+            if n.is_leaf():
+                return 0
+            return 1 + max(get_depth(n.left), get_depth(n.right))
+        max_depth = get_depth(node)
 
-# Step 4: Plot as radial (circular) dendrogram
-plt.figure(figsize=(10, 10))
-dendrogram(linked,
-           labels=[f'Cluster {i}' for i in range(len(medoid_indices))],
-           orientation='right',
-           leaf_rotation=90,
-           leaf_font_size=10,
-           distance_sort='descending',
-           show_leaf_counts=True)
+    if node.is_leaf():
+        angle = leaf_angle[0]
+        leaf_angle[0] += 2 * np.pi / node.count  # equally spaced
+        angle_dict[node.id] = (angle, max_depth)
+    else:
+        assign_radial_positions(node.left, depth + 1, leaf_angle, angle_dict, max_depth)
+        assign_radial_positions(node.right, depth + 1, leaf_angle, angle_dict, max_depth)
 
-plt.title('Radial Dendrogram of K-Medoids Clusters')
-plt.gca().set_aspect('equal', adjustable='datalim')
-plt.tight_layout()
+        left_angle, _ = angle_dict[node.left.id]
+        right_angle, _ = angle_dict[node.right.id]
+        mid_angle = (left_angle + right_angle) / 2
+        angle_dict[node.id] = (mid_angle, max_depth - depth)
+
+    return angle_dict
+
+# ---- Step 3: Plotting function ----
+def plot_radial_tree(ax, node, pos_dict):
+    if node.left:
+        a0, r0 = pos_dict[node.id]
+        a1, r1 = pos_dict[node.left.id]
+        ax.plot([a0, a1], [r0, r1], color='k')
+        plot_radial_tree(ax, node.left, pos_dict)
+    if node.right:
+        a0, r0 = pos_dict[node.id]
+        a1, r1 = pos_dict[node.right.id]
+        ax.plot([a0, a1], [r0, r1], color='k')
+        plot_radial_tree(ax, node.right, pos_dict)
+
+# ---- Step 4: Assign positions and plot tree ----
+positions = assign_radial_positions(root_node)
+
+fig = plt.figure(figsize=(8, 8))
+ax = plt.subplot(111, polar=True)
+ax.set_theta_direction(-1)
+ax.set_theta_offset(np.pi / 2)
+ax.set_rticks([])
+ax.set_xticks([])
+
+plot_radial_tree(ax, root_node, positions)
+
+# ---- Step 5: Plot nodes and labels ----
+for node_id, (angle, radius) in positions.items():
+    ax.plot(angle, radius, 'o', color='blue')
+    ax.text(angle, radius, str(node_id), fontsize=8,
+            ha='center', va='center')
+
+plt.title("Radial Dendrogram (Matplotlib + to_tree)", y=1.08)
 plt.show()
