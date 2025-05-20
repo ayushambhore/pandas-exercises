@@ -1,53 +1,114 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.cluster.hierarchy import linkage, dendrogram
+from scipy.cluster.hierarchy import linkage, dendrogram, fcluster
+from scipy.spatial.distance import squareform
+import seaborn as sns
 
-# --- Step 1: Sample data ---
-from sklearn.datasets import make_blobs
-X, _ = make_blobs(n_samples=20, centers=3, random_state=42)
+np.random.seed(0)
+n = 78
+D = np.random.rand(n, n)
+D = (D + D.T) / 2
+np.fill_diagonal(D, 0)
+condensed_D = squareform(D)
+Z = linkage(condensed_D, method='average')
 
-# --- Step 2: Hierarchical clustering ---
-Z = linkage(X, method='ward')
+k = 20
+cluster_labels = fcluster(Z, t=k, criterion='maxclust')
 
-# --- Step 3: Create dendrogram to extract coordinates ---
 ddata = dendrogram(Z, no_plot=True)
-
-# --- Step 4: Convert to polar coordinates manually ---
 icoord = np.array(ddata['icoord'])
 dcoord = np.array(ddata['dcoord'])
-labels = ddata['ivl']
+labels = np.array(list(map(int, ddata['ivl'])))  # dendrogram leaves order
 
-# Normalize angles and distances
-max_radius = np.max(dcoord)
-angles = np.linspace(0, 2 * np.pi, icoord.shape[0] * 4)
-angle_map = {}
+num_leaves = len(labels)
+theta_leaves = np.linspace(0, 2 * np.pi, num_leaves, endpoint=False)
+leaf_pos_to_theta = {i: angle for i, angle in enumerate(theta_leaves)}
 
-for i, label in enumerate(ddata['leaves']):
-    angle_map[label] = 2 * np.pi * i / len(ddata['leaves'])
+def x_to_theta(x):
+    left_idx = int((x - 5) // 10)
+    right_idx = min(left_idx + 1, num_leaves - 1)
+    left_x = 5 + 10 * left_idx
+    right_x = 5 + 10 * right_idx
+    left_theta = leaf_pos_to_theta[left_idx]
+    right_theta = leaf_pos_to_theta[right_idx]
 
-# Prepare polar plot
-fig, ax = plt.subplots(figsize=(10, 10), subplot_kw={'projection': 'polar'})
-ax.set_xticks([])
-ax.set_yticks([])
-ax.set_theta_direction(-1)
-ax.set_theta_offset(np.pi / 2)
+    if right_x == left_x:
+        return left_theta
+    diff = right_theta - left_theta
+    if diff < -np.pi:
+        diff += 2 * np.pi
+    elif diff > np.pi:
+        diff -= 2 * np.pi
 
-# --- Step 5: Draw lines in polar coordinates ---
+    frac = (x - left_x) / (right_x - left_x)
+    angle = left_theta + frac * diff
+    return angle % (2 * np.pi)
+
+max_d = np.max(dcoord)
+min_radius = 0.3
+max_radius = 1.0
+
+def scale_radius(y):
+    return min_radius + (max_radius - min_radius) * (1 - y / max_d)
+
+def interpolate_arc(theta1, theta2, r, num_points=30):
+    diff = theta2 - theta1
+    if diff < -np.pi:
+        diff += 2 * np.pi
+    elif diff > np.pi:
+        diff -= 2 * np.pi
+    thetas = np.linspace(theta1, theta1 + diff, num_points)
+    rs = np.full_like(thetas, r)
+    return thetas % (2 * np.pi), rs
+
+leaf_pos_to_cluster = {i: cluster_labels[leaf_idx] for i, leaf_idx in enumerate(labels)}
+
+# Get tab20 palette (20 colors)
+palette = sns.color_palette("tab20", 20)
+
+# Create a reordered color list to maximize color difference by picking every 4th color cyclically
+# This will jump through palette indices like 0,4,8,12,16,1,5,9,... to avoid adjacent similar colors
+reordered_indices = [(i * 4) % 20 for i in range(20)]
+palette_reordered = [palette[i] for i in reordered_indices]
+
+def cluster_to_color(cluster):
+    # Cluster numbering 1..k, map to reordered palette
+    return palette_reordered[(cluster - 1) % len(palette_reordered)]
+
+fig, ax = plt.subplots(figsize=(14, 14), subplot_kw={'projection': 'polar'})
+ax.set_ylim(0, 1.05)
+ax.set_axis_off()
+
+# Plot all branches in black
 for xs, ys in zip(icoord, dcoord):
-    # Convert x (horizontal coord) to angle
-    angles = [2 * np.pi * (x - min(icoord.flatten())) / (max(icoord.flatten()) - min(icoord.flatten())) for x in xs]
-    radii = [max_radius - y for y in ys]  # flip Y to make root at center
-    ax.plot(angles, radii, color='black')
+    points = [(x_to_theta(x), scale_radius(y)) for x, y in zip(xs, ys)]
 
-# --- Step 6: Label leaves (optional) ---
-for i, label in enumerate(ddata['leaves']):
-    angle = angle_map[label]
-    radius = 0  # leaves at outer edge
-    ax.text(angle, max_radius + 1.5, str(label),
-            rotation=np.degrees(angle),
-            rotation_mode='anchor',
-            ha='center', va='center')
+    ax.plot([points[0][0], points[1][0]], [points[0][1], points[1][1]], color='black', linewidth=1.5)
+    theta_arc, r_arc = interpolate_arc(points[1][0], points[2][0], points[1][1])
+    ax.plot(theta_arc, r_arc, color='black', linewidth=1.5)
+    ax.plot([points[2][0], points[3][0]], [points[2][1], points[3][1]], color='black', linewidth=1.5)
 
-plt.title("True Radial Dendrogram (Matplotlib + Scipy)", va='bottom')
-plt.tight_layout()
+# Plot leaf labels colored by cluster
+for leaf_pos, leaf_label in enumerate(labels):
+    angle = theta_leaves[leaf_pos]
+    rotation = np.rad2deg(angle)
+    cluster = leaf_pos_to_cluster[leaf_pos]
+    color = cluster_to_color(cluster)
+    if 90 < rotation < 270:
+        rotation += 180
+        ha = 'right'
+    else:
+        ha = 'left'
+
+    ax.text(angle, max_radius + 0.02, str(leaf_label), fontsize=9,
+            rotation=rotation, rotation_mode='anchor',
+            ha=ha, va='center', color=color, weight='bold')
+
+plt.title(f"Radial Dendrogram with {k} Clusters - Clean & Distinct Label Colors", y=1.1)
+plt.savefig('radial_dendrogram_distinct_label_colors.png', bbox_inches='tight')
 plt.show()
+
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------------
+
