@@ -1,126 +1,39 @@
-
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.cluster.hierarchy import linkage, dendrogram, fcluster
-from scipy.spatial.distance import pdist, squareform
-import seaborn as sns
 import pandas as pd
+import numpy as np
+from sklearn_extra.cluster import KMedoids
+from scipy.spatial.distance import pdist, squareform
 
-# ----------------- 1. Example DataFrame with string labels -----------------
-# You can replace this with your own DataFrame (use .T if clustering columns)
+# Example DataFrame with named columns
 df = pd.DataFrame(
-    np.random.rand(78, 10),
-    index=[f'Item{i}' for i in range(78)]  # original labels
+    np.random.rand(100, 10),
+    columns=[f'col{i}' for i in range(10)]  # your original column names
 )
 
-# ----------------- 2. Preserve original labels -----------------
-original_names = df.index.tolist()  # <-- PRESERVING LABELS
+# Step 1: Compute column-wise distance matrix
+D = pdist(df.T)  # transpose to cluster columns
+D_square = squareform(D)
 
-# ----------------- 3. Distance Matrix and Linkage -----------------
-D = pdist(df.values)
-Z = linkage(D, method='average')
+# Step 2: Run K-Medoids clustering
+k = 3
+kmedoids = KMedoids(n_clusters=k, metric='precomputed', random_state=42)
+kmedoids.fit(D_square)
 
-# ----------------- 4. Assign Clusters -----------------
-k = 20
-cluster_labels = fcluster(Z, t=k, criterion='maxclust')
+# Step 3: Get original column names and their cluster IDs
+column_names = df.columns.tolist()
+cluster_labels = kmedoids.labels_
 
-# ----------------- 5. Dendrogram with labels -----------------
-# Pass original labels to dendrogram
-ddata = dendrogram(Z, labels=original_names, no_plot=True)  # <-- MODIFIED TO INCLUDE LABELS
+# Step 4: Group columns by cluster ID
+cluster_dict = {}
+for col_name, cluster_id in zip(column_names, cluster_labels):
+    cluster_dict.setdefault(cluster_id, []).append(col_name)
 
-icoord = np.array(ddata['icoord'])
-dcoord = np.array(ddata['dcoord'])
-labels = np.array(ddata['ivl'])  # labels are strings now
+# Step 5: Convert to DataFrame
+cluster_df = pd.DataFrame([
+    {'ClusterID': cluster_id, 'Members': ', '.join(members)}
+    for cluster_id, members in sorted(cluster_dict.items())
+])
 
-num_leaves = len(labels)
-theta_leaves = np.linspace(0, 2 * np.pi, num_leaves, endpoint=False)
-leaf_pos_to_theta = {i: angle for i, angle in enumerate(theta_leaves)}
+# Optional: Save to CSV
+cluster_df.to_csv("kmedoids_column_clusters.csv", index=False)
 
-# ----------------- 6. Utility Functions -----------------
-def x_to_theta(x):
-    left_idx = int((x - 5) // 10)
-    right_idx = min(left_idx + 1, num_leaves - 1)
-    left_x = 5 + 10 * left_idx
-    right_x = 5 + 10 * right_idx
-    left_theta = leaf_pos_to_theta[left_idx]
-    right_theta = leaf_pos_to_theta[right_idx]
-
-    if right_x == left_x:
-        return left_theta
-    diff = right_theta - left_theta
-    if diff < -np.pi:
-        diff += 2 * np.pi
-    elif diff > np.pi:
-        diff -= 2 * np.pi
-
-    frac = (x - left_x) / (right_x - left_x)
-    angle = left_theta + frac * diff
-    return angle % (2 * np.pi)
-
-max_d = np.max(dcoord)
-min_radius = 0.3
-max_radius = 1.0
-
-def scale_radius(y):
-    return min_radius + (max_radius - min_radius) * (1 - y / max_d)
-
-def interpolate_arc(theta1, theta2, r, num_points=30):
-    diff = theta2 - theta1
-    if diff < -np.pi:
-        diff += 2 * np.pi
-    elif diff > np.pi:
-        diff -= 2 * np.pi
-    thetas = np.linspace(theta1, theta1 + diff, num_points)
-    rs = np.full_like(thetas, r)
-    return thetas % (2 * np.pi), rs
-
-# ----------------- 7. Map leaf positions to cluster labels -----------------
-# Map string labels back to their index in original_names to get cluster
-label_to_index = {name: i for i, name in enumerate(original_names)}
-leaf_pos_to_cluster = {
-    i: cluster_labels[label_to_index[label]] for i, label in enumerate(labels)
-}
-
-# ----------------- 8. Color Palette Setup -----------------
-palette = sns.color_palette("tab20", 20)
-reordered_indices = [(i * 4) % 20 for i in range(20)]
-palette_reordered = [palette[i] for i in reordered_indices]
-
-def cluster_to_color(cluster):
-    return palette_reordered[(cluster - 1) % len(palette_reordered)]
-
-# ----------------- 9. Plotting the Polar Dendrogram -----------------
-fig, ax = plt.subplots(figsize=(14, 14), subplot_kw={'projection': 'polar'})
-ax.set_ylim(0, 1.05)
-ax.set_axis_off()
-
-# --- Plot all branches in black
-for xs, ys in zip(icoord, dcoord):
-    points = [(x_to_theta(x), scale_radius(y)) for x, y in zip(xs, ys)]
-    ax.plot([points[0][0], points[1][0]], [points[0][1], points[1][1]], color='black', linewidth=1.5)
-    theta_arc, r_arc = interpolate_arc(points[1][0], points[2][0], points[1][1])
-    ax.plot(theta_arc, r_arc, color='black', linewidth=1.5)
-    ax.plot([points[2][0], points[3][0]], [points[2][1], points[3][1]], color='black', linewidth=1.5)
-
-# --- Plot leaf labels with cluster number and distinct color
-for leaf_pos, label in enumerate(labels):
-    angle = theta_leaves[leaf_pos]
-    rotation = np.rad2deg(angle)
-    cluster = leaf_pos_to_cluster[leaf_pos]
-    color = cluster_to_color(cluster)
-
-    label_text = f"{label} (C{cluster})"  # <-- ADDED CLUSTER NUMBER TO LABEL
-
-    if 90 < rotation < 270:
-        rotation += 180
-        ha = 'right'
-    else:
-        ha = 'left'
-
-    ax.text(angle, max_radius + 0.02, label_text, fontsize=9,
-            rotation=rotation, rotation_mode='anchor',
-            ha=ha, va='center', color=color, weight='bold')
-
-plt.title(f"Radial Dendrogram with {k} Clusters and Original Labels", y=1.1)
-plt.savefig('radial_dendrogram_with_labels_and_clusters.png', bbox_inches='tight')
-plt.show()
+print(cluster_df)
