@@ -1,31 +1,26 @@
 import pandas as pd
 
-# Sample: Assuming df1 and df2 are your DataFrames and both have a common 'id' column
-# Ensure they are sorted by 'id' to align comparisons correctly
-df1_sorted = df1.sort_values('id').reset_index(drop=True)
-df2_sorted = df2.sort_values('id').reset_index(drop=True)
+# Assuming `df_merge` is your DataFrame and `columns` is your list of factor columns
 
-# Create an empty dictionary to store differences
-diff_info = {}
+# Step 1: Melt the DataFrame to long format
+melted = df_merge.melt(id_vars=['Date', 'GRID', 'UnivID'], value_vars=columns,
+                       var_name='FactorName', value_name='FactorValue')
 
-# Loop through each column (excluding 'id')
-for column in df1.columns:
-    if column == 'id':
-        continue
+# Step 2: Group by Date and FactorName
+group = melted.groupby(['Date', 'FactorName'])
 
-    # Compare values for the column
-    mask = df1_sorted[column] != df2_sorted[column]
+# Step 3: Aggregate counts
+summary = group.agg(
+    UnivCount=('GRID', 'count'),              # Total number of records (universities)
+    FactorCount=('FactorValue', 'count')      # Non-null values for the factor
+).reset_index()
 
-    # If differences exist, store the count and ids
-    if mask.any():
-        differing_ids = df1_sorted.loc[mask, 'id'].tolist()
-        diff_info[column] = {
-            'count': len(differing_ids),
-            'ids': differing_ids
-        }
+# Step 4: Add Coverage column
+summary['Coverage'] = round((summary['FactorCount'] / summary['UnivCount']) * 100, 4)
 
-# Convert to DataFrame for display (optional)
-diff_df = pd.DataFrame([
-    {'column': col, 'count': info['count'], 'ids': info['ids']}
-    for col, info in diff_info.items()
-])
+# Optional: Get UnivID (assuming it's the same for all rows per group — if not, this needs adjusting)
+first_univ = melted.groupby(['Date', 'FactorName'])['UnivID'].first().reset_index()
+final_df = pd.merge(summary, first_univ, on=['Date', 'FactorName'])
+
+# Rearranging columns
+final_df = final_df[['Date', 'UnivID', 'UnivCount', 'FactorName', 'FactorCount', 'Coverage']]
