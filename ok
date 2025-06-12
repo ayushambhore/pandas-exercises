@@ -1,0 +1,1 @@
+=IF(ISNA(VLOOKUP(A2, '[File2.xlsx]Sheet1'!$A$2:$A$100, 1, FALSE)), FALSE, TRUE)
