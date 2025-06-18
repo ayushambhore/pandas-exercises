@@ -1,1 +1,4 @@
-=IF(ISNA(VLOOKUP(A2, '[File2.xlsx]Sheet1'!$A$2:$A$100, 1, FALSE)), FALSE, TRUE)
+import pandas as pd
+
+# Round only float columns to 5 decimal places
+df.loc[:, df.select_dtypes(include='float').columns] = df.select_dtypes(include='float').round(5)
