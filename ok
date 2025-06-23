@@ -1,4 +1,47 @@
-import pandas as pd
+import xml.etree.ElementTree as ET
+import csv
 
-# Round only float columns to 5 decimal places
-df.loc[:, df.select_dtypes(include='float').columns] = df.select_dtypes(include='float').round(5)
+def xml_to_csv_auto(input_xml_path, output_csv_path):
+    tree = ET.parse(input_xml_path)
+    root = tree.getroot()
+
+    # Find repeating elements (records)
+    # Automatically detect first element that has more than one similar tag
+    repeating_elements = None
+    for elem in root.iter():
+        children = list(elem)
+        tag_counts = {}
+        for child in children:
+            tag_counts[child.tag] = tag_counts.get(child.tag, 0) + 1
+        # Find the tag that repeats (e.g., multiple <person>)
+        for tag, count in tag_counts.items():
+            if count > 1:
+                repeating_elements = elem.findall(tag)
+                break
+        if repeating_elements:
+            break
+
+    if not repeating_elements:
+        print("No repeating elements found.")
+        return
+
+    # Extract records
+    records = []
+    all_tags = set()
+
+    for item in repeating_elements:
+        row_data = {}
+        for child in item:
+            row_data[child.tag] = child.text
+            all_tags.add(child.tag)
+        records.append(row_data)
+
+    # Write to CSV
+    all_tags = sorted(all_tags)
+    with open(output_csv_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=all_tags)
+        writer.writeheader()
+        for record in records:
+            writer.writerow(record)
+
+    print(f"CSV written to: {output_csv_path}")
